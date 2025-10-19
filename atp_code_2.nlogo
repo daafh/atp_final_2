@@ -1,38 +1,93 @@
+patches-own [
+  is-ground-floor?    ;; ground floor is on the right side of the screen
+  is-stairs?          ;; stairs are marked by pcolor cyan
+  is-walkable?        ;; walkable tiles are marked by pcolor white or stairs
+]
+
+turtles-own [
+  current-floor       ;; track current floor for stair behavior
+]
+
+;; this function loads the image and clears all, should be called in setup function
 to import-image-to-world
   clear-all
-  import-pcolors "plattegrond.png"
+  import-pcolors "academiegebouw_map.png"
   reset-ticks
 end
 
+to create-floor-specific-agents [n ground-floor?]
+  let target-floor ground-floor?
+
+  repeat n [
+    let candidates patches with [
+      is-walkable? and is-ground-floor? = target-floor
+    ]
+    if any? candidates [
+      ask one-of candidates [
+        sprout 1 [
+          set color ifelse-value target-floor [red] [blue]
+          set current-floor ifelse-value target-floor [1] [0]
+        ]
+      ]
+    ]
+  ]
+end
+
+;; turtle function to move if on stairs
+to move-stairs
+  if [is-stairs?] of patch-here [
+    ;; ground floor > first floor
+    if current-floor = 0 [
+      ;; 125 pixels between stairs
+      let target-patch patch (pxcor - 125) pycor
+      move-to target-patch
+      set current-floor 1
+    ]
+    ;; first floor > ground floor
+    if current-floor = 1 [
+      ;; 125 pixels between stairs
+      let target-patch patch (pxcor + 125) pycor
+      move-to target-patch
+      set current-floor 0
+    ]
+  ]
+end
 
 to setup
   import-image-to-world
-  ask patches with [pcolor = white] [
-    sprout 1 [set color blue]
+
+  ask patches [
+    set is-ground-floor? (pxcor >= (min-pxcor + max-pxcor) / 2)
+    set is-stairs? (pcolor = 85.2)
+    set is-walkable? (pcolor = white or pcolor = 85.2)
   ]
+
+  create-floor-specific-agents 50 false
+  create-floor-specific-agents 50 true
 end
+
 @#$#@#$#@
 GRAPHICS-WINDOW
-210
+126
 10
-998
-466
+1359
+357
 -1
 -1
-2.0
-1
-2
+5.0
 1
 1
-1
-0
 1
 1
 1
 0
-386
 0
-217
+0
+1
+0
+245
+0
+67
 0
 0
 1
