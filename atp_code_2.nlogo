@@ -2,10 +2,17 @@ patches-own [
   is-ground-floor?    ;; ground floor is on the right side of the screen
   is-stairs?          ;; stairs are marked by pcolor cyan
   is-walkable?        ;; walkable tiles are marked by pcolor white or stairs
+  is-exit?
 ]
 
 turtles-own [
   current-floor       ;; track current floor for stair behavior
+]
+
+globals [
+  total-agents        ;; number of agents initialized on setup
+  agents-died         ;; agents that did not escape
+  agents-survived     ;; agents that did escape
 ]
 
 ;; this function loads the image and clears all, should be called in setup function
@@ -26,7 +33,7 @@ to create-floor-specific-agents [n ground-floor?]
       ask one-of candidates [
         sprout 1 [
           set color ifelse-value target-floor [red] [blue]
-          set current-floor ifelse-value target-floor [1] [0]
+          set current-floor ifelse-value target-floor [0] [1]
         ]
       ]
     ]
@@ -40,6 +47,7 @@ to move-stairs
     if current-floor = 0 [
       ;; 125 pixels between stairs
       let target-patch patch (pxcor - 125) pycor
+      set heading towards patch (xcor - 1) ycor
       move-to target-patch
       set current-floor 1
     ]
@@ -47,6 +55,7 @@ to move-stairs
     if current-floor = 1 [
       ;; 125 pixels between stairs
       let target-patch patch (pxcor + 125) pycor
+      set heading towards patch (xcor + 1) ycor
       move-to target-patch
       set current-floor 0
     ]
@@ -59,19 +68,35 @@ to setup
   ask patches [
     set is-ground-floor? (pxcor >= (min-pxcor + max-pxcor) / 2)
     set is-stairs? (pcolor = 85.2)
-    set is-walkable? (pcolor = white or pcolor = 85.2)
+    set is-walkable? (pcolor = white or pcolor = 85.2 or pcolor = 64.9)
+    set is-exit? (pcolor = 64.9)
   ]
 
   create-floor-specific-agents 50 false
   create-floor-specific-agents 50 true
 end
 
+to go
+  ask turtles [
+    rt random 180
+    fd 1
+
+    if not [is-walkable?] of patch-here [
+      bk 1
+      rt 180
+    ]
+
+    move-stairs
+  ]
+  tick
+end
+
 @#$#@#$#@
 GRAPHICS-WINDOW
 126
-10
+11
 1359
-357
+358
 -1
 -1
 5.0
@@ -93,6 +118,23 @@ GRAPHICS-WINDOW
 1
 ticks
 30.0
+
+BUTTON
+64
+186
+127
+219
+NIL
+go
+T
+1
+T
+OBSERVER
+NIL
+NIL
+NIL
+NIL
+1
 
 @#$#@#$#@
 ## WHAT IS IT?
