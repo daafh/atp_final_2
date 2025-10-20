@@ -2,11 +2,16 @@ patches-own [
   is-ground-floor?    ;; ground floor is on the right side of the screen
   is-stairs?          ;; stairs are marked by pcolor cyan
   is-walkable?        ;; walkable tiles are marked by pcolor white or stairs
-  is-exit?
+  is-exit?            ;; exits are marked by green tiles
+  is-burning?         ;; burning tiles have a red pcolor
+
+  burning-value       ;; int value for threshold
+  burning-time        ;; how long patches burn for
 ]
 
 turtles-own [
   current-floor       ;; track current floor for stair behavior
+  spatial-knowledge   ;; either high, medium or low
 ]
 
 globals [
@@ -14,6 +19,63 @@ globals [
   agents-died         ;; agents that did not escape
   agents-survived     ;; agents that did escape
 ]
+
+
+to setup
+  import-image-to-world
+
+  ask patches [
+    set is-ground-floor? (pxcor >= (min-pxcor + max-pxcor) / 2)
+    set is-stairs? (pcolor = 85.2)
+    set is-walkable? (pcolor = white or pcolor = 85.2 or pcolor = 64.9)
+    set is-exit? (pcolor = 64.9)
+    set is-burning? false
+    set burning-value 0
+  ]
+
+  create-floor-specific-agents agents-on-ground-floor true
+  create-floor-specific-agents agents-on-first-floor false
+
+  ask one-of patches with [pcolor = white] [
+    ;; ignite
+  ]
+end
+
+to go
+  if not any? turtles [
+    stop
+  ]
+
+  ask turtles [
+    rt random 180
+    fd 1
+
+    if not [is-walkable?] of patch-here [
+      bk 1
+      rt 180
+    ]
+
+    if [is-stairs?] of patch-here [
+      move-stairs
+    ]
+
+
+    if [is-exit?] of patch-here [
+      set agents-survived agents-survived + 1
+      die
+    ]
+
+    if [is-burning?] of patch-here [
+      set agents-died agents-died + 1
+      die
+    ]
+  ]
+
+  spread-fire
+  fade-fire
+
+  tick
+end
 
 ;; this function loads the image and clears all, should be called in setup function
 to import-image-to-world
@@ -34,6 +96,7 @@ to create-floor-specific-agents [n ground-floor?]
         sprout 1 [
           set color ifelse-value target-floor [red] [blue]
           set current-floor ifelse-value target-floor [0] [1]
+          set spatial-knowledge one-of ["high" "medium" "low"]
         ]
       ]
     ]
@@ -42,66 +105,65 @@ end
 
 ;; turtle function to move if on stairs
 to move-stairs
-  if [is-stairs?] of patch-here [
-    ;; ground floor > first floor
-    if current-floor = 0 [
-      ;; 125 pixels between stairs
-      let target-patch patch (pxcor - 125) pycor
-      set heading towards patch (xcor - 1) ycor
-      move-to target-patch
-      set current-floor 1
-    ]
-    ;; first floor > ground floor
-    if current-floor = 1 [
-      ;; 125 pixels between stairs
-      let target-patch patch (pxcor + 125) pycor
-      set heading towards patch (xcor + 1) ycor
-      move-to target-patch
-      set current-floor 0
+  ;; ground floor > first floor
+  if current-floor = 0 [
+    ;; 125 pixels between stairs
+
+    let target-patch patch (pxcor - 125) pycor
+    move-to target-patch
+    set current-floor 1
+  ]
+  ;; first floor > ground floor
+  if current-floor = 1 [
+    ;; 125 pixels between stairs
+    let target-patch patch (pxcor + 125) pycor
+    move-to target-patch
+    set current-floor 0
+  ]
+end
+
+to ignite
+  set pcolor red
+  set is-burning? true
+  set is-walkable? false
+  set burning-value 100
+  set burning-time 200
+end
+
+to spread-fire
+  ask patches with [is-burning?] [
+    ask neighbors with [is-walkable? and not is-burning?] [
+      set burning-value burning-value + burn-rate
+      if burning-value > 80 [
+        ignite
+      ]
     ]
   ]
 end
 
-to setup
-  import-image-to-world
+to fade-fire
+  ask patches with [is-burning?] [
+    set burning-time burning-time - 1
 
-  ask patches [
-    set is-ground-floor? (pxcor >= (min-pxcor + max-pxcor) / 2)
-    set is-stairs? (pcolor = 85.2)
-    set is-walkable? (pcolor = white or pcolor = 85.2 or pcolor = 64.9)
-    set is-exit? (pcolor = 64.9)
-  ]
-
-  create-floor-specific-agents 50 false
-  create-floor-specific-agents 50 true
-end
-
-to go
-  ask turtles [
-    rt random 180
-    fd 1
-
-    if not [is-walkable?] of patch-here [
-      bk 1
-      rt 180
+    if burning-time <= 0 [
+      set is-walkable? false
+      set is-burning? false
+      set pcolor gray
     ]
-
-    move-stairs
   ]
-  tick
 end
 
 @#$#@#$#@
 GRAPHICS-WINDOW
-126
-11
-1359
-358
+244
+20
+1236
+301
 -1
 -1
-5.0
+4.0
 1
-1
+5
 1
 1
 1
@@ -120,10 +182,10 @@ ticks
 30.0
 
 BUTTON
-64
-186
-127
-219
+143
+32
+221
+65
 NIL
 go
 T
@@ -135,6 +197,90 @@ NIL
 NIL
 NIL
 1
+
+BUTTON
+6
+32
+133
+65
+Setup Simulation
+setup
+NIL
+1
+T
+OBSERVER
+NIL
+NIL
+NIL
+NIL
+1
+
+SLIDER
+7
+74
+179
+107
+agents-on-first-floor
+agents-on-first-floor
+0
+100
+100.0
+1
+1
+NIL
+HORIZONTAL
+
+SLIDER
+7
+110
+187
+143
+agents-on-ground-floor
+agents-on-ground-floor
+0
+100
+100.0
+1
+1
+NIL
+HORIZONTAL
+
+SLIDER
+7
+147
+179
+180
+burn-rate
+burn-rate
+0
+2
+0.5
+0.1
+1
+NIL
+HORIZONTAL
+
+MONITOR
+7
+187
+87
+232
+NIL
+agents-died
+17
+1
+11
+
+MONITOR
+92
+187
+195
+232
+NIL
+agents-survived
+17
+1
+11
 
 @#$#@#$#@
 ## WHAT IS IT?
