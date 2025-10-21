@@ -23,6 +23,7 @@ globals [
   agents-survived     ;; agents that did escape
 ]
 
+;; GLOBAL FUNCTIONS ;;
 
 to setup
   import-image-to-world
@@ -43,9 +44,9 @@ to setup
   create-floor-specific-agents agents-on-ground-floor true
   create-floor-specific-agents agents-on-first-floor false
 
-  ;;ask one-of patches with [pcolor = white] [
-    ;; ignite
-  ;;]
+  ask one-of patches with [pcolor = white] [
+    ignite
+  ]
 end
 
 to go
@@ -54,13 +55,21 @@ to go
   ]
 
   ask turtles [
-    rt random 180
-    fd 1
+    (ifelse
+      spatial-knowledge = "high" [
+        move-greedily
+      ]
+      spatial-knowledge = "medium" [
 
-    if not [is-walkable?] of patch-here [
-      bk 1
-      rt 180
-    ]
+      ]
+      spatial-knowledge = "low" [
+
+      ]
+      ;; else :P
+      [
+
+      ]
+    )
 
     if [is-stairs?] of patch-here [
       move-stairs
@@ -84,6 +93,8 @@ to go
   tick
 end
 
+;; PATCH OWN FUNCTIONS ;;
+
 ;; this function loads the image and clears all, should be called in setup function
 to import-image-to-world
   clear-all
@@ -101,8 +112,10 @@ to compute-BFS-distance-to-exit
       set distance-to-exit -1
     ]
   ]
+
   let queue patches with [distance-to-exit = 0]
   let current-distance 0
+
   ;; BFS algorithm
   while [any? queue] [
     set current-distance current-distance + 1
@@ -126,14 +139,6 @@ to compute-BFS-distance-to-exit
     ]
     set queue expanded
   ]
-
-  ;; ai generated visualization
-  let max-distance max [distance-to-exit] of patches with [distance-to-exit >= 0]
-  ask patches with [distance-to-exit >= 0] [
-    ;; Normalize distance to 0–1 range and map to color scale
-    let norm-distance distance-to-exit / max-distance
-    set pcolor scale-color blue norm-distance 1 0
-  ]
 end
 
 ;; function that adds linking to stairs
@@ -144,44 +149,6 @@ to setup-stairs
     ] [
       set linked-stair-patch patch (pxcor + 125) pycor
     ]
-  ]
-end
-
-to create-floor-specific-agents [n ground-floor?]
-  let target-floor ground-floor?
-
-  repeat n [
-    let candidates patches with [
-      is-walkable? and is-ground-floor? = target-floor
-    ]
-    if any? candidates [
-      ask one-of candidates [
-        sprout 1 [
-          set color ifelse-value target-floor [red] [blue]
-          set current-floor ifelse-value target-floor [0] [1]
-          set spatial-knowledge one-of ["high" "medium" "low"]
-        ]
-      ]
-    ]
-  ]
-end
-
-;; turtle function to move if on stairs
-to move-stairs
-  ;; ground floor > first floor
-  if current-floor = 0 [
-    ;; 125 pixels between stairs
-
-    let target-patch linked-stair-patch
-    move-to target-patch
-    set current-floor 1
-  ]
-  ;; first floor > ground floor
-  if current-floor = 1 [
-    ;; 125 pixels between stairs
-    let target-patch linked-stair-patch
-    move-to target-patch
-    set current-floor 0
   ]
 end
 
@@ -213,6 +180,55 @@ to fade-fire
       set is-burning? false
       set pcolor gray
     ]
+  ]
+end
+
+to create-floor-specific-agents [n ground-floor?]
+  let target-floor ground-floor?
+
+  repeat n [
+    let candidates patches with [
+      is-walkable? and is-ground-floor? = target-floor
+    ]
+    if any? candidates [
+      ask one-of candidates [
+        sprout 1 [
+          set color ifelse-value target-floor [red] [blue]
+          set current-floor ifelse-value target-floor [0] [1]
+          set spatial-knowledge one-of ["high" "medium" "low"]
+        ]
+      ]
+    ]
+  ]
+end
+
+;; TURTLE OWN FUNCTIONS ;;
+
+;; turtle function to move if on stairs
+to move-stairs
+  ;; ground floor > first floor
+  if current-floor = 0 [
+    ;; 125 pixels between stairs
+
+    let target-patch linked-stair-patch
+    move-to target-patch
+    set current-floor 1
+  ]
+  ;; first floor > ground floor
+  if current-floor = 1 [
+    ;; 125 pixels between stairs
+    let target-patch linked-stair-patch
+    move-to target-patch
+    set current-floor 0
+  ]
+end
+
+to move-greedily
+  let options neighbors4 with [is-walkable? and distance-to-exit >= 0]
+  if any? options [
+    let best-option min-one-of options [distance-to-exit]
+    face best-option
+    move-to best-option
   ]
 end
 @#$#@#$#@
