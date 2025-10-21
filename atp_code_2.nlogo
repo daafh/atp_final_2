@@ -7,6 +7,9 @@ patches-own [
 
   burning-value       ;; int value for threshold
   burning-time        ;; how long patches burn for
+
+  distance-to-exit    ;; distance to nearest exit
+  linked-stair-patch  ;; link stairs together for simpler calculations
 ]
 
 turtles-own [
@@ -31,14 +34,18 @@ to setup
     set is-exit? (pcolor = 64.9)
     set is-burning? false
     set burning-value 0
+    set linked-stair-patch nobody
   ]
+
+  setup-stairs
+  compute-BFS-distance-to-exit
 
   create-floor-specific-agents agents-on-ground-floor true
   create-floor-specific-agents agents-on-first-floor false
 
-  ask one-of patches with [pcolor = white] [
+  ;;ask one-of patches with [pcolor = white] [
     ;; ignite
-  ]
+  ;;]
 end
 
 to go
@@ -84,6 +91,62 @@ to import-image-to-world
   reset-ticks
 end
 
+;; calculate BFS distance to exit first
+to compute-BFS-distance-to-exit
+  ;; set exits to distance 0
+  ask patches [
+    ifelse is-exit? [
+      set distance-to-exit 0
+    ] [
+      set distance-to-exit -1
+    ]
+  ]
+  let queue patches with [distance-to-exit = 0]
+  let current-distance 0
+  ;; BFS algorithm
+  while [any? queue] [
+    set current-distance current-distance + 1
+    let expanded no-patches
+    ask queue [
+      ;; ask von neumann neighbors with an unset distance to set distance
+      ask neighbors4 with [is-walkable? and distance-to-exit = -1] [
+        set distance-to-exit current-distance
+        set expanded (patch-set expanded self)
+      ]
+
+      ;; if there is a stair that is linked
+      if is-stairs? and linked-stair-patch != nobody [
+        if [distance-to-exit] of linked-stair-patch = -1 [
+          ask linked-stair-patch [
+            set distance-to-exit current-distance
+            set expanded (patch-set expanded self)
+          ]
+        ]
+      ]
+    ]
+    set queue expanded
+  ]
+
+  ;; ai generated visualization
+  let max-distance max [distance-to-exit] of patches with [distance-to-exit >= 0]
+  ask patches with [distance-to-exit >= 0] [
+    ;; Normalize distance to 0–1 range and map to color scale
+    let norm-distance distance-to-exit / max-distance
+    set pcolor scale-color blue norm-distance 1 0
+  ]
+end
+
+;; function that adds linking to stairs
+to setup-stairs
+  ask patches with [is-stairs?] [
+    ifelse is-ground-floor? [
+      set linked-stair-patch patch (pxcor - 125) pycor
+    ] [
+      set linked-stair-patch patch (pxcor + 125) pycor
+    ]
+  ]
+end
+
 to create-floor-specific-agents [n ground-floor?]
   let target-floor ground-floor?
 
@@ -109,14 +172,14 @@ to move-stairs
   if current-floor = 0 [
     ;; 125 pixels between stairs
 
-    let target-patch patch (pxcor - 125) pycor
+    let target-patch linked-stair-patch
     move-to target-patch
     set current-floor 1
   ]
   ;; first floor > ground floor
   if current-floor = 1 [
     ;; 125 pixels between stairs
-    let target-patch patch (pxcor + 125) pycor
+    let target-patch linked-stair-patch
     move-to target-patch
     set current-floor 0
   ]
@@ -152,7 +215,6 @@ to fade-fire
     ]
   ]
 end
-
 @#$#@#$#@
 GRAPHICS-WINDOW
 244
