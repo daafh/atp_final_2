@@ -10,17 +10,22 @@ patches-own [
 
   distance-to-exit    ;; distance to nearest exit
   linked-stair-patch  ;; link stairs together for simpler calculations
+
+  exit-counter        ;; per-tick exit output ;;NEW
 ]
 
 turtles-own [
   current-floor       ;; track current floor for stair behavior
   spatial-knowledge   ;; either high, medium or low
+  panic-level         ;; 0-1, increase mistake ;;NEW
 ]
 
 globals [
   total-agents        ;; number of agents initialized on setup
   agents-died         ;; agents that did not escape
   agents-survived     ;; agents that did escape
+
+  ;;NEW  ;;exit-capacity slider, how many people can pass through the exit at a time
 ]
 
 ;; GLOBAL FUNCTIONS ;;
@@ -36,7 +41,9 @@ to setup
     set is-burning? false
     set burning-value 0
     set linked-stair-patch nobody
+    set exit-counter 0 ;;NEW
   ]
+
 
   setup-stairs
   compute-BFS-distance-to-exit
@@ -54,7 +61,22 @@ to go
     stop
   ]
 
+  ask patches with [is-exit?] [
+  set exit-counter 0
+  ]  ;;NEW
+
   ask turtles [
+    ifelse panic-on? [
+      ifelse any? [is-burning?] of neighbors [
+        set panic-level min list 1 (panic-level + 0.1)
+      ] [
+        set panic-level max list 0 (panic-level - 0.02)
+      ]
+    ] [
+      set panic-level 0
+    ] ;;NEW
+
+
     (ifelse
       spatial-knowledge = "high" [
         move-greedily
@@ -77,9 +99,12 @@ to go
 
 
     if [is-exit?] of patch-here [
-      set agents-survived agents-survived + 1
-      die
-    ]
+      if [exit-counter] of patch-here < exit-capacity [
+        ask patch-here [set exit-counter exit-counter + 1]
+        set agents-survived agents-survived + 1
+        die
+      ]
+    ] ;;NEW   ;; Changed a bit so we can simulate that not all people can exit at the same time
 
     if [is-burning?] of patch-here [
       set agents-died agents-died + 1
@@ -196,6 +221,7 @@ to create-floor-specific-agents [n ground-floor?]
           set color ifelse-value target-floor [red] [blue]
           set current-floor ifelse-value target-floor [0] [1]
           set spatial-knowledge one-of ["high" "medium" "low"]
+          set panic-level 0 ;;NEW
         ]
       ]
     ]
@@ -226,6 +252,11 @@ end
 to move-greedily
   let options neighbors4 with [is-walkable? and distance-to-exit >= 0]
   if any? options [
+    let mistake-chance ifelse-value panic-on? [0.05 + 0.20 * panic-level] [0]
+    if random-float 1 < mistake-chance [
+      move-to one-of options
+      stop
+    ] ;;NEW
     let best-option min-one-of options [distance-to-exit]
     face best-option
     move-to best-option
@@ -359,6 +390,32 @@ agents-survived
 17
 1
 11
+
+SWITCH
+15
+244
+124
+277
+panic-on?
+panic-on?
+1
+1
+-1000
+
+SLIDER
+24
+294
+224
+327
+exit-capacity
+exit-capacity
+0
+10
+5.0
+1
+1
+agents per tick
+HORIZONTAL
 
 @#$#@#$#@
 ## WHAT IS IT?
