@@ -189,8 +189,16 @@ to spread-fire
   ask patches with [is-burning?] [
     ask neighbors with [is-walkable? and not is-burning?] [
       set burning-value burning-value + burn-rate
-      if burning-value > 80 [
+      if burning-value > 40 [
         ignite
+      ]
+    ]
+    if is-stairs? [
+      ask linked-stair-patch with [is-walkable? and not is-burning? and pcolor != gray] [
+        set burning-value burning-value + burn-rate
+        if burning-value > 40 [
+          ignite
+        ]
       ]
     ]
   ]
