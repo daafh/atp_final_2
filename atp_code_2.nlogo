@@ -82,10 +82,10 @@ to go
         move-greedily
       ]
       spatial-knowledge = "medium" [
-
+        move-semi-greedily
       ]
       spatial-knowledge = "low" [
-
+        move-randomly
       ]
       ;; else :P
       [
@@ -194,8 +194,9 @@ to spread-fire
       ]
     ]
     if is-stairs? [
-      ask linked-stair-patch with [is-walkable? and not is-burning? and pcolor != gray] [
+      ask linked-stair-patch [
         set burning-value burning-value + burn-rate
+        set is-stairs? false
         if burning-value > 40 [
           ignite
         ]
@@ -258,7 +259,7 @@ to move-stairs
 end
 
 to move-greedily
-  let options neighbors4 with [is-walkable? and distance-to-exit >= 0]
+  let options neighbors with [is-walkable? and distance-to-exit >= 0]
   if any? options [
     let mistake-chance ifelse-value panic-on? [0.05 + 0.20 * panic-level] [0]
     if random-float 1 < mistake-chance [
@@ -268,6 +269,26 @@ to move-greedily
     let best-option min-one-of options [distance-to-exit]
     face best-option
     move-to best-option
+  ]
+end
+
+to move-semi-greedily
+  let options neighbors with [is-walkable? and distance-to-exit >= 0]
+  if any? options [
+    let mistake-chance ifelse-value panic-on? [0.2 + 0.25 * panic-level] [0.4]
+    if random-float 1 < mistake-chance [
+      move-to one-of options
+      stop
+    ]
+    let best-option min-one-of options [distance-to-exit]
+    move-to best-option
+  ]
+end
+
+to move-randomly
+  let options neighbors with [is-walkable?]
+  if any? options [
+    move-to one-of options
   ]
 end
 @#$#@#$#@
@@ -371,7 +392,7 @@ burn-rate
 burn-rate
 0
 2
-0.5
+2.0
 0.1
 1
 NIL
