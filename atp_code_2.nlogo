@@ -5,7 +5,8 @@ patches-own [
   is-exit?            ;; exits are marked by green tiles
   is-burning?         ;; burning tiles have a red pcolor
 
-  burning-value       ;; int value for threshold
+  smoke-level         ;; int value for level of smoke
+  heat-level          ;; int value for level of heat, used for spreading fire
   burning-time        ;; how long patches burn for
 
   distance-to-exit    ;; distance to nearest exit
@@ -18,6 +19,8 @@ turtles-own [
   current-floor       ;; track current floor for stair behavior
   spatial-knowledge   ;; either high, medium or low
   panic-level         ;; 0-1, increase mistake ;;NEW
+
+  health              ;; health value used for agents in fire
 ]
 
 globals [
@@ -39,7 +42,7 @@ to setup
     set is-walkable? (pcolor = white or pcolor = 85.2 or pcolor = 64.9)
     set is-exit? (pcolor = 64.9)
     set is-burning? false
-    set burning-value 0
+    set heat-level 0
     set linked-stair-patch nobody
     set exit-counter 0 ;;NEW
   ]
@@ -107,13 +110,23 @@ to go
     ] ;;NEW   ;; Changed a bit so we can simulate that not all people can exit at the same time
 
     if [is-burning?] of patch-here [
-      set agents-died agents-died + 1
+      set health health - 10
+    ]
+
+    if [smoke-level > 40] of patch-here [
+      set health health - 2
+    ]
+
+    if health <= 0 [
       die
+      set agents-died agents-died + 1
     ]
   ]
 
   spread-fire
+  spread-smoke
   fade-fire
+  visualize-fire
 
   tick
 end
@@ -178,26 +191,27 @@ to setup-stairs
 end
 
 to ignite
-  set pcolor red
   set is-burning? true
-  set is-walkable? false
-  set burning-value 100
+  set heat-level 100
   set burning-time 200
 end
 
 to spread-fire
   ask patches with [is-burning?] [
     ask neighbors with [is-walkable? and not is-burning?] [
-      set burning-value burning-value + burn-rate
-      if burning-value > 40 [
+      set heat-level min list 100 (heat-level + 5 * burn-rate)
+      set smoke-level min list 100 (smoke-level + 3)
+      if heat-level > 40 and not is-burning? [
         ignite
       ]
     ]
+
     if is-stairs? [
       ask linked-stair-patch [
-        set burning-value burning-value + burn-rate
+        set heat-level min list 100 (heat-level + 5)
+        set smoke-level min list 100 (smoke-level + 3)
         set is-stairs? false
-        if burning-value > 40 [
+        if heat-level > 70 and not is-burning? [
           ignite
         ]
       ]
@@ -208,12 +222,6 @@ end
 to fade-fire
   ask patches with [is-burning?] [
     set burning-time burning-time - 1
-
-    if burning-time <= 0 [
-      set is-walkable? false
-      set is-burning? false
-      set pcolor gray
-    ]
   ]
 end
 
@@ -231,7 +239,41 @@ to create-floor-specific-agents [n ground-floor?]
           set current-floor ifelse-value target-floor [0] [1]
           set spatial-knowledge one-of ["high" "medium" "low"]
           set panic-level 0 ;;NEW
+          set health 100
         ]
+      ]
+    ]
+  ]
+end
+
+to visualize-fire
+  ask patches with [is-walkable?] [
+    if smoke-level > 0 [
+      set pcolor scale-color gray smoke-level 300 50
+    ]
+    if heat-level > 80 [
+      set pcolor orange
+    ]
+    if heat-level <= 80 and heat-level > 50 [
+      set pcolor yellow
+    ]
+    if heat-level <= 50 and heat-level > 0 [
+      set pcolor red
+    ]
+  ]
+end
+
+to spread-smoke
+  ask patches with [smoke-level > 0 and smoke-level != 100] [
+    let amount smoke-level * smoke-spread
+    ask neighbors with [is-walkable?] [
+      set smoke-level min list 100 (smoke-level + amount) ;; cap at 100
+    ]
+
+    if is-stairs? and linked-stair-patch != nobody [
+      let direction-multiplier ifelse-value is-ground-floor? [1.5] [0.5]
+      ask linked-stair-patch [
+        set smoke-level min list 100 (smoke-level + amount * direction-multiplier) ;; cap at 100
       ]
     ]
   ]
@@ -400,9 +442,9 @@ HORIZONTAL
 
 MONITOR
 7
-187
+237
 87
-232
+282
 NIL
 agents-died
 17
@@ -411,9 +453,9 @@ agents-died
 
 MONITOR
 92
-187
+237
 195
-232
+282
 NIL
 agents-survived
 17
@@ -422,9 +464,9 @@ agents-survived
 
 SWITCH
 15
-244
+294
 124
-277
+327
 panic-on?
 panic-on?
 1
@@ -433,9 +475,9 @@ panic-on?
 
 SLIDER
 24
-294
+344
 224
-327
+377
 exit-capacity
 exit-capacity
 0
@@ -444,6 +486,21 @@ exit-capacity
 1
 1
 agents per tick
+HORIZONTAL
+
+SLIDER
+8
+184
+180
+217
+smoke-spread
+smoke-spread
+0
+1
+0.1
+0.1
+1
+NIL
 HORIZONTAL
 
 @#$#@#$#@
