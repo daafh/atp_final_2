@@ -33,8 +33,6 @@ globals [
   total-agents        ;; number of agents initialized on setup
   agents-died         ;; agents that did not escape
   agents-survived     ;; agents that did escape
-
-  ;;NEW  ;;exit-capacity slider, how many people can pass through the exit at a time
 ]
 
 ;; GLOBAL FUNCTIONS ;;
@@ -89,7 +87,7 @@ to go
 
   ask turtles [
     ifelse panic-on? [
-      ifelse any? ([neighbors] of patch-here) with [is-burning?] [
+      ifelse any? (patches in-radius 10) with [is-burning?] [
         set panic-level min list 1 (panic-level + 0.1)
       ] [
         set panic-level max list 0 (panic-level - 0.02)
@@ -100,13 +98,13 @@ to go
 
     (ifelse
       spatial-knowledge = "high" [
-        move-greedily
+        move-high-knowledge
       ]
       spatial-knowledge = "medium" [
-        move-semi-greedily
+        move-medium-knowledge
       ]
       spatial-knowledge = "low" [
-
+        move-low-knowledge
       ]
       spatial-knowledge = "random" [
         random-walk
@@ -116,7 +114,7 @@ to go
       ]
     )
 
-    if [is-stairs?] of patch-here [
+    if [is-stairs? or is-honors-stairs? or is-fire-escape-stairs?] of patch-here [
       move-stairs
     ]
 
@@ -127,7 +125,7 @@ to go
         set agents-survived agents-survived + 1
         die
       ]
-    ] ;;NEW   ;; Changed a bit so we can simulate that not all people can exit at the same time
+    ]
 
     if [is-burning?] of patch-here [
       set health health - 10
@@ -171,11 +169,12 @@ to create-floor-specific-agents [n ground-floor?]
           set panic-level 0
           set health 100
           set color (ifelse-value
-                     spatial-knowledge = "high" [green]
+                     spatial-knowledge = "high"    [green]
                      spatial-knowledge = "medium"  [yellow]
                      spatial-knowledge = "low"     [red]
                      [gray]
           )
+          set size 1.5
         ]
       ]
     ]
@@ -380,6 +379,7 @@ end
 
 to ignite
   set is-burning? true
+  set is-walkable? false
   set heat-level 100
   set burning-time 200
 end
@@ -415,9 +415,12 @@ end
 
 to visualize-fire
   ask patches with [is-walkable?] [
-    if smoke-level > 0 [
+    if (smoke-level > 0 and not is-exit? and not is-stairs? and not is-honors-stairs?
+        and not is-fire-escape-stairs? and not is-burning?) [
       set pcolor scale-color gray smoke-level 300 50
     ]
+  ]
+  ask patches with [heat-level > 0] [
     if heat-level > 80 [
       set pcolor orange
     ]
@@ -449,59 +452,224 @@ end
 ;; END PATCH OWN FUNCTIONS ;;
 
 ;; TURTLE OWN FUNCTIONS ;;
+;; MOVEMENT FUNCTIONS ;;
 
 ;; turtle function to move if on stairs
 to move-stairs
-  ;; ground floor > first floor
-  if current-floor = 0 [
-    ;; 125 pixels between stairs
-
-    let target-patch linked-stair-patch
-    move-to target-patch
-    set current-floor 1
-  ]
-  ;; first floor > ground floor
-  if current-floor = 1 [
-    ;; 125 pixels between stairs
-    let target-patch linked-stair-patch
-    move-to target-patch
-    set current-floor 0
-  ]
-end
-
-;; MOVEMENT FUNCTIONS ;;
-
-to move-greedily
-  let options neighbors with [is-walkable? and distance-to-main-exit >= 0]
-  if any? options [
-    let mistake-chance ifelse-value panic-on? [0.05 + 0.20 * panic-level] [0]
-    if random-float 1 < mistake-chance [
-      move-to one-of options
-      stop
-    ] ;;NEW
-    let best-option min-one-of options [distance-to-main-exit]
-    face best-option
-    move-to best-option
-  ]
-end
-
-to move-semi-greedily
-  let options neighbors with [is-walkable? and distance-to-main-exit >= 0]
-  if any? options [
-    let mistake-chance ifelse-value panic-on? [0.2 + 0.25 * panic-level] [0.4]
-    if random-float 1 < mistake-chance [
-      move-to one-of options
-      stop
+  if linked-stair-patch != nobody [
+    move-to linked-stair-patch
+    set current-floor ifelse-value (current-floor = 0) [1] [0]
+    let next-patch one-of neighbors4 with [is-walkable? and not is-stairs? and not is-honors-stairs? and not is-fire-escape-stairs?]
+    ;; move off stair patch to prevent getting stuck
+    if next-patch != nobody [
+      move-to next-patch
     ]
-    let best-option min-one-of options [distance-to-main-exit]
-    move-to best-option
+  ]
+end
+
+to move-high-knowledge
+  ;; currently on first floor
+  ifelse (current-floor = 1) [
+    let options neighbors with [is-walkable? and not any? turtles-here]
+    if any? options [
+      let mistake-chance ifelse-value panic-on? [0.1 + 0.25 * panic-level] [0]
+      if random-float 1 < mistake-chance [
+        face one-of options
+        move-to one-of options
+        stop
+      ]
+      let best-option min-one-of options [
+        min (list distance-to-main-stairs distance-to-honors-stairs distance-to-fire-stairs)
+      ]
+      if best-option != nobody [
+        face best-option
+        move-to best-option
+      ]
+    ]
+  ] [ ;; else ground floor and move to nearest exit
+    let options neighbors with [is-walkable? and not any? turtles-here]
+    if any? options [
+      let mistake-chance ifelse-value panic-on? [0.2 + 0.25 * panic-level] [0]
+      if random-float 1 < mistake-chance [
+        face one-of options
+        move-to one-of options
+        stop
+      ]
+      let best-option min-one-of options [
+        min (list distance-to-main-exit distance-to-second-exit distance-to-fire-exit)
+      ]
+      if best-option != nobody [
+        face best-option
+        move-to best-option
+      ]
+    ]
+  ]
+end
+
+to move-medium-knowledge
+  ;; currently on first floor
+  ifelse (current-floor = 1) [
+    let options neighbors with [is-walkable? and not any? turtles-here]
+    if any? options [
+      ;; mistakes due to panic
+      let mistake-chance ifelse-value panic-on? [0.2 + 0.25 * panic-level] [0.1]
+      if random-float 1 < mistake-chance [
+        face one-of options
+        move-to one-of options
+        stop
+      ]
+      ;; if fire escape nearby, go there instead
+      let fire-escape-patches patches in-radius 10 with [is-fire-escape-stairs?]
+      if any? fire-escape-patches [
+        let best-option min-one-of options [distance-to-fire-stairs]
+        face best-option
+        move-to best-option
+        stop
+      ]
+      ;; choose best option to main exit/stairs
+      let best-option min-one-of options [
+        min (list distance-to-main-stairs)
+      ]
+      if best-option != nobody [
+        face best-option
+        move-to best-option
+      ]
+    ]
+  ] [ ;; else ground floor and move to nearest exit
+    let options neighbors with [is-walkable? and not any? turtles-here]
+    if any? options [
+      ;; mistakes due to panic
+      let mistake-chance ifelse-value panic-on? [0.2 + 0.25 * panic-level] [0.1]
+      if random-float 1 < mistake-chance [
+        face one-of options
+        move-to one-of options
+        stop
+      ]
+      ;; if fire escape nearby, go there instead
+      let fire-escape-patches patches in-radius 10 with [is-fire-escape-stairs?]
+      if any? fire-escape-patches [
+        let best-option min-one-of options [distance-to-fire-stairs]
+        face best-option
+        move-to best-option
+        stop
+      ]
+      ;; choose best option to main exit/stairs
+      let best-option min-one-of options [
+        min (list distance-to-main-exit)
+      ]
+      if best-option != nobody [
+        face best-option
+        move-to best-option
+      ]
+    ]
+  ]
+end
+
+to move-low-knowledge
+  ;; currently on first floor
+  ifelse (current-floor = 1) [
+    let options neighbors with [is-walkable? and not any? turtles-here]
+    if any? options [
+      let stairs-patches patches in-radius 15 with [is-stairs?]
+      let fire-stairs-patches patches in-radius 10 with [is-fire-escape-stairs?]
+      let mistake-chance ifelse-value panic-on? [0.4 + 0.25 * panic-level] [0]
+      if random-float 1 < mistake-chance [
+        face one-of options
+        move-to one-of options
+        stop
+      ]
+
+      ;; local vision
+      (ifelse
+        any? stairs-patches [
+          ;; pick distance of tile closest to the stairs
+          let best-option min-one-of options [distance-to-main-stairs]
+          face best-option
+          move-to best-option
+        ]
+        any? fire-stairs-patches [
+          let best-option min-one-of options [distance-to-fire-stairs]
+          face best-option
+          move-to best-option
+        ] [
+          ;; else: move away from fire
+          let nearby-patches patches in-radius 5
+          let fire-patches patches with [is-burning?]
+          if any? fire-patches [
+            let closest-fire-patch min-one-of fire-patches [distance myself]
+            let safe-patches nearby-patches with [not any? turtles-here and not is-burning?]
+
+            let away-from-fire-patches safe-patches with [
+              distancexy [pxcor] of closest-fire-patch [pycor] of closest-fire-patch >
+              [distance myself] of closest-fire-patch
+            ]
+
+            ifelse any? away-from-fire-patches [
+              move-to one-of away-from-fire-patches
+            ] [
+              if any? safe-patches [
+                let chosen-patch one-of options ;; random walk
+                face chosen-patch
+                move-to chosen-patch
+              ]
+            ]
+          ]
+        ]
+      )
+    ]
+  ] [ ;; else ground floor and move to nearest exit
+    let options neighbors with [is-walkable? and not any? turtles-here]
+    if any? options [
+      let visible-targets patches in-radius 15 with [is-exit?]
+      let mistake-chance ifelse-value panic-on? [0.4 + 0.25 * panic-level] [0]
+      if random-float 1 < mistake-chance [
+        face one-of options
+        move-to one-of options
+        stop
+      ]
+
+      ;; local vision
+      ifelse any? visible-targets [
+        ;; pick best patch to be the patch with shortest distance to myself
+        let best-option min-one-of options [
+          min (list distance-to-main-exit distance-to-second-exit distance-to-fire-exit)
+        ]
+        face best-option
+        move-to best-option
+      ] [
+          ;; else: move away from fire
+          let nearby-patches patches in-radius 5
+          let fire-patches patches with [is-burning?]
+          if any? fire-patches [
+            let closest-fire-patch min-one-of fire-patches [distance myself]
+            let safe-patches nearby-patches with [not any? turtles-here and not is-burning?]
+
+            let away-from-fire-patches safe-patches with [
+              distancexy [pxcor] of closest-fire-patch [pycor] of closest-fire-patch >
+              [distance myself] of closest-fire-patch
+            ]
+
+            ifelse any? away-from-fire-patches [
+              move-to one-of away-from-fire-patches
+            ] [
+              if any? safe-patches [
+                let chosen-patch one-of options ;; random walk
+                face chosen-patch
+                move-to chosen-patch
+              ]
+            ]
+          ]
+        ]
+    ]
   ]
 end
 
 to random-walk
   let options neighbors with [is-walkable?]
   if any? options [
-    move-to one-of options
+    let chosen-patch one-of options
+    face chosen-patch
+    move-to chosen-patch
   ]
 end
 @#$#@#$#@
@@ -668,8 +836,8 @@ smoke-spread
 smoke-spread
 0
 1
-0.1
-0.05
+0.07
+0.01
 1
 NIL
 HORIZONTAL
