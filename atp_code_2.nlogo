@@ -1,24 +1,30 @@
 patches-own [
-  is-ground-floor?    ;; ground floor is on the right side of the screen
-  is-stairs?          ;; stairs are marked by pcolor cyan
-  is-walkable?        ;; walkable tiles are marked by pcolor white or stairs
-  is-exit?            ;; exits are marked by green tiles
-  is-burning?         ;; burning tiles have a red pcolor
+  is-ground-floor?            ;; ground floor is on the right side of the screen
+  is-stairs?                  ;; stairs are marked by pcolor cyan
+  is-honors-stairs?           ;; honors stairs are marked by dark blue patch color
+  is-fire-escape-stairs?      ;; fire escape stairs are marked by purple patch color
+  is-walkable?                ;; walkable tiles are marked by pcolor white or stairs
+  is-exit?                    ;; exits are marked by green tiles
+  is-burning?                 ;; burning tiles have a red pcolor
 
-  smoke-level         ;; int value for level of smoke
-  heat-level          ;; int value for level of heat, used for spreading fire
-  burning-time        ;; how long patches burn for
+  smoke-level                 ;; int value for level of smoke
+  heat-level                  ;; int value for level of heat, used for spreading fire
+  burning-time                ;; how long patches burn for
 
-  distance-to-exit    ;; distance to nearest exit
-  linked-stair-patch  ;; link stairs together for simpler calculations
-
-  exit-counter        ;; per-tick exit output ;;NEW
+  distance-to-main-exit       ;; distance to main exit(s)
+  distance-to-second-exit     ;; distance to second exit
+  distance-to-fire-exit       ;; distance to fire exit
+  distance-to-main-stairs     ;; distance to the main stairway
+  distance-to-honors-stairs   ;; distance to the stairs in the honors college entrance
+  distance-to-fire-stairs     ;; distance to the stairs in the fire escape
+  linked-stair-patch          ;; link stairs together for simpler calculations
+  exit-counter                ;; per-tick exit output
 ]
 
 turtles-own [
   current-floor       ;; track current floor for stair behavior
-  spatial-knowledge   ;; either high, medium or low
-  panic-level         ;; 0-1, increase mistake ;;NEW
+  spatial-knowledge   ;; either random, low, medium, high
+  panic-level         ;; 0-1, increase mistake
 
   health              ;; health value used for agents in fire
 ]
@@ -38,18 +44,31 @@ to setup
 
   ask patches [
     set is-ground-floor? (pxcor >= (min-pxcor + max-pxcor) / 2)
+    ;; different stair variables needed for distance calculations
     set is-stairs? (pcolor = 85.2)
-    set is-walkable? (pcolor = white or pcolor = 85.2 or pcolor = 64.9)
+    set is-honors-stairs? (pcolor = 104.9)
+    set is-fire-escape-stairs? (pcolor = 125.7)
     set is-exit? (pcolor = 64.9)
+    set is-walkable? (pcolor = white or is-exit? or is-stairs? or is-honors-stairs? or is-fire-escape-stairs?)
     set is-burning? false
     set heat-level 0
     set linked-stair-patch nobody
-    set exit-counter 0 ;;NEW
+    set exit-counter 0
   ]
 
+  ;; observer setup functions
+  setup-stairs    ;; support stairs in both directions
 
-  setup-stairs
-  compute-BFS-distance-to-exit
+  ;; compute distances to exits on ground-floor
+  compute-distance-main-exit
+  compute-distance-second-exit
+  compute-distance-fire-escape
+
+  ;; compute distances to stairs on first floor
+  compute-distance-stairs
+  compute-distance-honors-stairs
+  compute-distance-fire-escape-stairs
+
 
   create-floor-specific-agents agents-on-ground-floor true
   create-floor-specific-agents agents-on-first-floor false
@@ -65,20 +84,19 @@ to go
   ]
 
   ask patches with [is-exit?] [
-  set exit-counter 0
-  ]  ;;NEW
+    set exit-counter 0
+  ]
 
   ask turtles [
     ifelse panic-on? [
-      ifelse any? [is-burning?] of neighbors [
+      ifelse any? ([neighbors] of patch-here) with [is-burning?] [
         set panic-level min list 1 (panic-level + 0.1)
       ] [
         set panic-level max list 0 (panic-level - 0.02)
       ]
     ] [
       set panic-level 0
-    ] ;;NEW
-
+    ]
 
     (ifelse
       spatial-knowledge = "high" [
@@ -88,11 +106,13 @@ to go
         move-semi-greedily
       ]
       spatial-knowledge = "low" [
-        move-randomly
-      ]
-      ;; else :P
-      [
 
+      ]
+      spatial-knowledge = "random" [
+        random-walk
+      ]
+      [
+        show ("No knowledge assigned!")
       ]
     )
 
@@ -118,8 +138,8 @@ to go
     ]
 
     if health <= 0 [
-      die
       set agents-died agents-died + 1
+      die
     ]
   ]
 
@@ -131,27 +151,58 @@ to go
   tick
 end
 
+;; END GLOBAL FUNCTIONS
+
 ;; PATCH OWN FUNCTIONS ;;
 
-;; this function loads the image and clears all, should be called in setup function
+;; function for creating n amount of agents on defined floor
+to create-floor-specific-agents [n ground-floor?]
+  let target-floor ground-floor?
+
+  repeat n [
+    let candidates patches with [
+      is-walkable? and is-ground-floor? = target-floor
+    ]
+    if any? candidates [
+      ask one-of candidates [
+        sprout 1 [
+          set current-floor ifelse-value target-floor [0] [1]
+          set spatial-knowledge one-of ["high" "medium" "low" "random"]
+          set panic-level 0
+          set health 100
+          set color (ifelse-value
+                     spatial-knowledge = "high" [green]
+                     spatial-knowledge = "medium"  [yellow]
+                     spatial-knowledge = "low"     [red]
+                     [gray]
+          )
+        ]
+      ]
+    ]
+  ]
+end
+
+;; function for loading patch colors, clearing all and resetting ticks
 to import-image-to-world
   clear-all
   import-pcolors "academiegebouw_map.png"
   reset-ticks
 end
 
-;; calculate BFS distance to exit first
-to compute-BFS-distance-to-exit
-  ;; set exits to distance 0
+;; DISTANCE COMPUTATIONS ;;
+
+;; function that calculates the BFS distance to the MAIN exit
+to compute-distance-main-exit
+  ;; explicitly set main exit patches distance to zero
   ask patches [
-    ifelse is-exit? [
-      set distance-to-exit 0
+    ifelse is-exit? and pycor = 1 [
+      set distance-to-main-exit 0
     ] [
-      set distance-to-exit -1
+      set distance-to-main-exit -1
     ]
   ]
 
-  let queue patches with [distance-to-exit = 0]
+  let queue patches with [distance-to-main-exit = 0]
   let current-distance 0
 
   ;; BFS algorithm
@@ -160,19 +211,154 @@ to compute-BFS-distance-to-exit
     let expanded no-patches
     ask queue [
       ;; ask von neumann neighbors with an unset distance to set distance
-      ask neighbors4 with [is-walkable? and distance-to-exit = -1] [
-        set distance-to-exit current-distance
+      ask neighbors4 with [is-walkable? and distance-to-main-exit = -1] [
+        set distance-to-main-exit current-distance
         set expanded (patch-set expanded self)
       ]
+    ]
+    set queue expanded
+  ]
+end
 
-      ;; if there is a stair that is linked
-      if is-stairs? and linked-stair-patch != nobody [
-        if [distance-to-exit] of linked-stair-patch = -1 [
-          ask linked-stair-patch [
-            set distance-to-exit current-distance
-            set expanded (patch-set expanded self)
-          ]
-        ]
+;; function that calculates the BFS distance to the SECOND exit (on the left)
+to compute-distance-second-exit
+  ;; explicitly set second exit patches distance to zero
+  ask patches [
+    ifelse is-exit? and pycor = 54 [
+      set distance-to-second-exit 0
+    ] [
+      set distance-to-second-exit -1
+    ]
+  ]
+
+  let queue patches with [distance-to-second-exit = 0]
+  let current-distance 0
+
+  ;; BFS algorithm
+  while [any? queue] [
+    set current-distance current-distance + 1
+    let expanded no-patches
+    ask queue [
+      ;; ask von neumann neighbors with an unset distance to set distance
+      ask neighbors4 with [is-walkable? and distance-to-second-exit = -1] [
+        set distance-to-second-exit current-distance
+        set expanded (patch-set expanded self)
+      ]
+    ]
+    set queue expanded
+  ]
+end
+
+;; function that calculates the BFS distance to the FIRE exit (on the right)
+to compute-distance-fire-escape
+  ;; explicitly set fire escape exit patches distance to zero
+  ask patches [
+    ifelse is-exit? and pxcor = 225 [
+      set distance-to-fire-exit 0
+    ] [
+      set distance-to-fire-exit -1
+    ]
+  ]
+
+  let queue patches with [distance-to-fire-exit = 0]
+  let current-distance 0
+
+  ;; BFS algorithm
+  while [any? queue] [
+    set current-distance current-distance + 1
+    let expanded no-patches
+    ask queue [
+      ;; ask von neumann neighbors with an unset distance to set distance
+      ask neighbors4 with [is-walkable? and distance-to-fire-exit = -1] [
+        set distance-to-fire-exit current-distance
+        set expanded (patch-set expanded self)
+      ]
+    ]
+    set queue expanded
+  ]
+end
+
+;; function that calculates the BFS distance to the MAIN stairs (aqua, in the middle)
+to compute-distance-stairs
+  ;; explicitly set main stair patches on first floor distance to zero
+  ask patches [
+    ifelse is-stairs? and not is-ground-floor? [
+      set distance-to-main-stairs 0
+    ] [
+      set distance-to-main-stairs -1
+    ]
+  ]
+
+  let queue patches with [distance-to-main-stairs = 0]
+  let current-distance 0
+
+  ;; BFS algorithm
+  while [any? queue] [
+    set current-distance current-distance + 1
+    let expanded no-patches
+    ask queue [
+      ;; ask von neumann neighbors with an unset distance to set distance
+      ask neighbors4 with [is-walkable? and distance-to-main-stairs = -1] [
+        set distance-to-main-stairs current-distance
+        set expanded (patch-set expanded self)
+      ]
+    ]
+    set queue expanded
+  ]
+end
+
+;; function that calculates the BFS distance to the HONORS COLLEGE entrace stairs (dark blue, on the left)
+to compute-distance-honors-stairs
+  ;; explicitly set honors stair patches on first floor distance to zero
+  ask patches [
+    ifelse is-honors-stairs? and not is-ground-floor? [
+      set distance-to-honors-stairs 0
+    ] [
+      set distance-to-honors-stairs -1
+    ]
+  ]
+
+  let queue patches with [distance-to-honors-stairs = 0]
+  let current-distance 0
+
+  ;; BFS algorithm
+  while [any? queue] [
+    set current-distance current-distance + 1
+    let expanded no-patches
+    ask queue [
+      ;; ask von neumann neighbors with an unset distance to set distance
+      ask neighbors4 with [is-walkable? and distance-to-honors-stairs = -1] [
+        set distance-to-honors-stairs current-distance
+        set expanded (patch-set expanded self)
+      ]
+    ]
+    set queue expanded
+  ]
+end
+
+;; function that calculates the BFS distance to the FIRE ESCAPE stairs (purple, on the right)
+to compute-distance-fire-escape-stairs
+  ;; explicitly set fire escape stair patch on first floor distance to zero
+  ask patches [
+    ifelse is-fire-escape-stairs? and not is-ground-floor? [
+      set distance-to-fire-stairs 0
+    ] [
+      set distance-to-fire-stairs -1
+    ]
+  ]
+
+  let queue patches with [distance-to-fire-stairs = 0]
+  let current-distance 0
+
+  ;; BFS algorithm
+  while [any? queue] [
+    set current-distance current-distance + 1
+    let expanded no-patches
+    ask queue [
+      ;; ask von neumann neighbors with an unset distance to set distance
+      ask neighbors4 with [is-walkable? and distance-to-fire-stairs = -1] [
+        set distance-to-fire-stairs current-distance
+        set expanded (patch-set expanded self)
       ]
     ]
     set queue expanded
@@ -181,7 +367,7 @@ end
 
 ;; function that adds linking to stairs
 to setup-stairs
-  ask patches with [is-stairs?] [
+  ask patches with [is-stairs? or is-honors-stairs? or is-fire-escape-stairs?] [
     ifelse is-ground-floor? [
       set linked-stair-patch patch (pxcor - 125) pycor
     ] [
@@ -189,6 +375,8 @@ to setup-stairs
     ]
   ]
 end
+
+;; FUNCTIONS RELATED TO FIRE ;;
 
 to ignite
   set is-burning? true
@@ -225,27 +413,6 @@ to fade-fire
   ]
 end
 
-to create-floor-specific-agents [n ground-floor?]
-  let target-floor ground-floor?
-
-  repeat n [
-    let candidates patches with [
-      is-walkable? and is-ground-floor? = target-floor
-    ]
-    if any? candidates [
-      ask one-of candidates [
-        sprout 1 [
-          set color ifelse-value target-floor [red] [blue]
-          set current-floor ifelse-value target-floor [0] [1]
-          set spatial-knowledge one-of ["high" "medium" "low"]
-          set panic-level 0 ;;NEW
-          set health 100
-        ]
-      ]
-    ]
-  ]
-end
-
 to visualize-fire
   ask patches with [is-walkable?] [
     if smoke-level > 0 [
@@ -279,6 +446,8 @@ to spread-smoke
   ]
 end
 
+;; END PATCH OWN FUNCTIONS ;;
+
 ;; TURTLE OWN FUNCTIONS ;;
 
 ;; turtle function to move if on stairs
@@ -300,34 +469,36 @@ to move-stairs
   ]
 end
 
+;; MOVEMENT FUNCTIONS ;;
+
 to move-greedily
-  let options neighbors with [is-walkable? and distance-to-exit >= 0]
+  let options neighbors with [is-walkable? and distance-to-main-exit >= 0]
   if any? options [
     let mistake-chance ifelse-value panic-on? [0.05 + 0.20 * panic-level] [0]
     if random-float 1 < mistake-chance [
       move-to one-of options
       stop
     ] ;;NEW
-    let best-option min-one-of options [distance-to-exit]
+    let best-option min-one-of options [distance-to-main-exit]
     face best-option
     move-to best-option
   ]
 end
 
 to move-semi-greedily
-  let options neighbors with [is-walkable? and distance-to-exit >= 0]
+  let options neighbors with [is-walkable? and distance-to-main-exit >= 0]
   if any? options [
     let mistake-chance ifelse-value panic-on? [0.2 + 0.25 * panic-level] [0.4]
     if random-float 1 < mistake-chance [
       move-to one-of options
       stop
     ]
-    let best-option min-one-of options [distance-to-exit]
+    let best-option min-one-of options [distance-to-main-exit]
     move-to best-option
   ]
 end
 
-to move-randomly
+to random-walk
   let options neighbors with [is-walkable?]
   if any? options [
     move-to one-of options
@@ -338,7 +509,7 @@ GRAPHICS-WINDOW
 244
 20
 1236
-301
+249
 -1
 -1
 4.0
@@ -354,7 +525,7 @@ GRAPHICS-WINDOW
 0
 245
 0
-67
+54
 0
 0
 1
@@ -469,7 +640,7 @@ SWITCH
 327
 panic-on?
 panic-on?
-1
+0
 1
 -1000
 
@@ -498,7 +669,7 @@ smoke-spread
 0
 1
 0.1
-0.1
+0.05
 1
 NIL
 HORIZONTAL
