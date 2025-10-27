@@ -9,7 +9,6 @@ patches-own [
 
   smoke-level                 ;; int value for level of smoke
   heat-level                  ;; int value for level of heat, used for spreading fire
-  burning-time                ;; how long patches burn for
 
   distance-to-main-exit       ;; distance to main exit(s)
   distance-to-second-exit     ;; distance to second exit
@@ -85,12 +84,7 @@ to setup
     ignite
   ]
 
-  ;; initialize evacuation times per group
-  set total-evacuation-times []
-  set high-evacuation-times []
-  set medium-evacuation-times []
-  set low-evacuation-times []
-  set random-evacuation-times []
+  initialize-reporter-variables
 end
 
 to go
@@ -185,25 +179,54 @@ to go
     ]
   ]
 
-  ;; compute distances to exits on ground-floor
-  compute-distance-main-exit
-  compute-distance-second-exit
-  compute-distance-fire-escape
 
-  ;; compute distances to stairs on first floor
-  compute-distance-stairs
-  compute-distance-honors-stairs
-  compute-distance-fire-escape-stairs
+  ;; update BFS every 5 ticks -> increase model performance
+  if ticks mod 5 = 0 [
+    ;; compute distances to exits on ground-floor
+    compute-distance-main-exit
+    compute-distance-second-exit
+    compute-distance-fire-escape
 
+    ;; compute distances to stairs on first floor
+    compute-distance-stairs
+    compute-distance-honors-stairs
+    compute-distance-fire-escape-stairs
+  ]
+
+
+  ;; call fire related functions
   spread-fire
   spread-smoke
-  fade-fire
   visualize-fire
 
   tick
 end
 
 ;; REPORTER FUNCTIONS ;;
+
+to initialize-reporter-variables
+  ;; all global variables are just set here,
+  ;; which are used for reporting statistics
+  set total-agents count turtles
+  set agents-survived 0
+  set agents-died 0
+
+  set high-survived 0
+  set medium-survived 0
+  set low-survived 0
+  set random-survived 0
+  set high-died 0
+  set medium-died 0
+  set low-died 0
+  set random-died 0
+
+  ;; initialize evacuation times per group
+  set total-evacuation-times []
+  set high-evacuation-times []
+  set medium-evacuation-times []
+  set low-evacuation-times []
+  set random-evacuation-times []
+end
 
 to-report survival-rate
   report agents-survived / total-agents
@@ -217,6 +240,39 @@ to-report avg-evacuation-times
   let rand-avg    ifelse-value empty? random-evacuation-times [0] [mean random-evacuation-times]
 
   report (list overall-avg high-avg med-avg low-avg rand-avg)
+end
+
+;; function that neatly summarizes everything for behaviorspace
+to-report simulation-summary
+  ;; calculate survival rates per group ;;
+  ;; find total amount of agents per group
+  let total-high   (high-survived + high-died)
+  let total-medium    (medium-survived + medium-died)
+  let total-low    (low-survived + low-died)
+  let total-random   (random-survived + random-died)
+
+  ;; simple survival rate per group
+  let surv-rate-high high-survived / total-high
+  let surv-rate-medium medium-survived / total-medium
+  let surv-rate-low low-survived / total-low
+  let surv-rate-random random-survived / total-random
+
+  let surv-rate-overall agents-survived / total-agents
+
+  ;; calculate evacuation times per group
+  ;; same as function avg-evacuation-times!, just used seperately so we can report all variables at once
+  let overall-avg ifelse-value empty? total-evacuation-times [0] [mean total-evacuation-times]
+  let high-avg    ifelse-value empty? high-evacuation-times [0] [mean high-evacuation-times]
+  let med-avg     ifelse-value empty? medium-evacuation-times [0] [mean medium-evacuation-times]
+  let low-avg     ifelse-value empty? low-evacuation-times [0] [mean low-evacuation-times]
+  let rand-avg    ifelse-value empty? random-evacuation-times [0] [mean random-evacuation-times]
+
+  ;; report a big list of all statistics calculated above
+  ;; these can be used for further analysis
+  report (list
+    surv-rate-high surv-rate-medium surv-rate-low surv-rate-random surv-rate-overall
+    overall-avg high-avg med-avg low-avg rand-avg
+  )
 end
 
 ;; END GLOBAL FUNCTIONS
@@ -451,7 +507,6 @@ to ignite
   set is-burning? true
   set is-walkable? false
   set heat-level 100
-  set burning-time 200
 end
 
 to spread-fire
@@ -474,12 +529,6 @@ to spread-fire
         ]
       ]
     ]
-  ]
-end
-
-to fade-fire
-  ask patches with [is-burning?] [
-    set burning-time burning-time - 1
   ]
 end
 
@@ -582,7 +631,7 @@ to move-medium-knowledge
     let options neighbors with [is-walkable? and not any? turtles-here]
     if any? options [
       ;; mistakes due to panic
-      let mistake-chance ifelse-value panic-on? [0.2 + 0.25 * panic-level] [0.1]
+      let mistake-chance ifelse-value panic-on? [0.2 + 0.1 * panic-level] [0.1]
       if random-float 1 < mistake-chance [
         face one-of options
         move-to one-of options
@@ -609,7 +658,7 @@ to move-medium-knowledge
     let options neighbors with [is-walkable? and not any? turtles-here]
     if any? options [
       ;; mistakes due to panic
-      let mistake-chance ifelse-value panic-on? [0.2 + 0.25 * panic-level] [0.1]
+      let mistake-chance ifelse-value panic-on? [0.2 + 0.1 * panic-level] [0.1]
       if random-float 1 < mistake-chance [
         face one-of options
         move-to one-of options
@@ -642,7 +691,7 @@ to move-low-knowledge
     if any? options [
       let stairs-patches patches in-radius 15 with [is-stairs?]
       let fire-stairs-patches patches in-radius 10 with [is-fire-escape-stairs?]
-      let mistake-chance ifelse-value panic-on? [0.4 + 0.25 * panic-level] [0]
+      let mistake-chance ifelse-value panic-on? [0.4 + 0.1 * panic-level] [0]
       if random-float 1 < mistake-chance [
         face one-of options
         move-to one-of options
@@ -663,15 +712,15 @@ to move-low-knowledge
           move-to best-option
         ] [
           ;; else: move away from fire
-          let nearby-patches patches in-radius 5
-          let fire-patches patches with [is-burning?]
+          let nearby-patches neighbors
+          let fire-patches patches in-radius 5 with [is-burning?]
           if any? fire-patches [
             let closest-fire-patch min-one-of fire-patches [distance myself]
-            let safe-patches nearby-patches with [not any? turtles-here and not is-burning?]
+            let safe-patches nearby-patches with [not any? turtles-here and not is-burning? and is-walkable?]
 
+            let my-dist [distance myself] of closest-fire-patch
             let away-from-fire-patches safe-patches with [
-              distancexy [pxcor] of closest-fire-patch [pycor] of closest-fire-patch >
-              [distance myself] of closest-fire-patch
+              (distance closest-fire-patch) > my-dist
             ]
 
             ifelse any? away-from-fire-patches [
@@ -691,7 +740,7 @@ to move-low-knowledge
     let options neighbors with [is-walkable? and not any? turtles-here]
     if any? options [
       let visible-targets patches in-radius 15 with [is-exit?]
-      let mistake-chance ifelse-value panic-on? [0.4 + 0.25 * panic-level] [0]
+      let mistake-chance ifelse-value panic-on? [0.4 + 0.1 * panic-level] [0]
       if random-float 1 < mistake-chance [
         face one-of options
         move-to one-of options
@@ -708,15 +757,15 @@ to move-low-knowledge
         move-to best-option
       ] [
           ;; else: move away from fire
-          let nearby-patches patches in-radius 5
-          let fire-patches patches with [is-burning?]
+          let nearby-patches neighbors
+          let fire-patches patches in-radius 5 with [is-burning?]
           if any? fire-patches [
             let closest-fire-patch min-one-of fire-patches [distance myself]
-            let safe-patches nearby-patches with [not any? turtles-here and not is-burning?]
+            let safe-patches nearby-patches with [not any? turtles-here and not is-burning? and is-walkable?]
 
+            let my-dist [distance myself] of closest-fire-patch
             let away-from-fire-patches safe-patches with [
-              distancexy [pxcor] of closest-fire-patch [pycor] of closest-fire-patch >
-              [distance myself] of closest-fire-patch
+              (distance closest-fire-patch) > my-dist
             ]
 
             ifelse any? away-from-fire-patches [
@@ -891,10 +940,10 @@ NIL
 HORIZONTAL
 
 PLOT
-243
-262
-623
-461
+470
+259
+850
+458
 Agents survived per group
 ticks
 Amount
@@ -912,10 +961,10 @@ PENS
 "random-walk" 1.0 0 -7500403 true "" "plot random-survived"
 
 PLOT
-627
-261
-1008
-459
+852
+259
+1233
+457
 Dead agents per group
 ticks
 Amount
@@ -928,18 +977,51 @@ true
 "" ""
 PENS
 "high-deceased" 1.0 0 -10899396 true "" "plot high-died"
-"pen-1" 1.0 0 -1184463 true "" "plot medium-died"
-"pen-2" 1.0 0 -2674135 true "" "plot low-died"
-"pen-3" 1.0 0 -7500403 true "" "plot random-died"
+"medium-deceased" 1.0 0 -1184463 true "" "plot medium-died"
+"low-deceased" 1.0 0 -2674135 true "" "plot low-died"
+"random-deceased" 1.0 0 -7500403 true "" "plot random-died"
 
 MONITOR
-7
-307
-142
-352
-NIL
-avg-evacuation-times
-17
+248
+259
+461
+304
+avg. high knowledge evac. time
+ifelse-value empty? high-evacuation-times [0] [mean high-evacuation-times]
+2
+1
+11
+
+MONITOR
+248
+308
+461
+353
+avg. medium knowledge evac. time
+ifelse-value empty? medium-evacuation-times [0] [mean medium-evacuation-times]
+2
+1
+11
+
+MONITOR
+273
+358
+461
+403
+avg. low knowledge evac. time
+ifelse-value empty? low-evacuation-times [0] [mean low-evacuation-times]
+2
+1
+11
+
+MONITOR
+283
+408
+461
+453
+avg. random-walk evac. time
+ifelse-value empty? random-evacuation-times [0] [mean random-evacuation-times]
+2
 1
 11
 
