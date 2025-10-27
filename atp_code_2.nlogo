@@ -29,10 +29,19 @@ turtles-own [
   health              ;; health value used for agents in fire
 ]
 
+
 globals [
-  total-agents        ;; number of agents initialized on setup
-  agents-died         ;; agents that did not escape
-  agents-survived     ;; agents that did escape
+  total-agents                                               ;; number of agents initialized on setup
+  agents-survived agents-died                                ;; set of variables that measure total survival and deceased counts
+  high-survived medium-survived low-survived random-survived ;; variables that measure survival per spatial knowledge group
+  high-died medium-died low-died random-died                 ;; variables that measure deceased per spatial knowledge group
+
+  total-evacuation-times
+  high-evacuation-times
+  medium-evacuation-times                                    ;; list of all evacuation times
+  low-evacuation-times
+  random-evacuation-times
+
 ]
 
 ;; GLOBAL FUNCTIONS ;;
@@ -67,13 +76,21 @@ to setup
   compute-distance-honors-stairs
   compute-distance-fire-escape-stairs
 
-
+  ;; create agents
   create-floor-specific-agents agents-on-ground-floor true
   create-floor-specific-agents agents-on-first-floor false
 
+  ;; set random patch on fire
   ask one-of patches with [pcolor = white] [
     ignite
   ]
+
+  ;; initialize evacuation times per group
+  set total-evacuation-times []
+  set high-evacuation-times []
+  set medium-evacuation-times []
+  set low-evacuation-times []
+  set random-evacuation-times []
 end
 
 to go
@@ -122,7 +139,28 @@ to go
     if [is-exit?] of patch-here [
       if [exit-counter] of patch-here < exit-capacity [
         ask patch-here [set exit-counter exit-counter + 1]
+        ;; adjust counters
         set agents-survived agents-survived + 1
+
+        ;; increase count of knowledge group and add evacuation time
+        let time ticks
+        set total-evacuation-times lput time total-evacuation-times
+        if spatial-knowledge = "high" [
+          set high-survived high-survived + 1
+          set high-evacuation-times lput time high-evacuation-times
+        ]
+        if spatial-knowledge = "medium" [
+          set medium-survived medium-survived + 1
+          set medium-evacuation-times lput time medium-evacuation-times
+        ]
+        if spatial-knowledge = "low" [
+          set low-survived low-survived + 1
+          set low-evacuation-times lput time low-evacuation-times
+        ]
+        if spatial-knowledge = "random" [
+          set random-survived random-survived + 1
+          set random-evacuation-times lput time random-evacuation-times
+        ]
         die
       ]
     ]
@@ -136,10 +174,26 @@ to go
     ]
 
     if health <= 0 [
+      ;; adjust counters
       set agents-died agents-died + 1
+
+      if spatial-knowledge = "high"       [set high-died high-died + 1]
+      if spatial-knowledge = "medium"     [set medium-died medium-died + 1]
+      if spatial-knowledge = "low"        [set low-died low-died + 1]
+      if spatial-knowledge = "random"     [set random-died random-died + 1]
       die
     ]
   ]
+
+  ;; compute distances to exits on ground-floor
+  compute-distance-main-exit
+  compute-distance-second-exit
+  compute-distance-fire-escape
+
+  ;; compute distances to stairs on first floor
+  compute-distance-stairs
+  compute-distance-honors-stairs
+  compute-distance-fire-escape-stairs
 
   spread-fire
   spread-smoke
@@ -147,6 +201,22 @@ to go
   visualize-fire
 
   tick
+end
+
+;; REPORTER FUNCTIONS ;;
+
+to-report survival-rate
+  report agents-survived / total-agents
+end
+
+to-report avg-evacuation-times
+  let overall-avg ifelse-value empty? total-evacuation-times [0] [mean total-evacuation-times]
+  let high-avg    ifelse-value empty? high-evacuation-times [0] [mean high-evacuation-times]
+  let med-avg     ifelse-value empty? medium-evacuation-times [0] [mean medium-evacuation-times]
+  let low-avg     ifelse-value empty? low-evacuation-times [0] [mean low-evacuation-times]
+  let rand-avg    ifelse-value empty? random-evacuation-times [0] [mean random-evacuation-times]
+
+  report (list overall-avg high-avg med-avg low-avg rand-avg)
 end
 
 ;; END GLOBAL FUNCTIONS
@@ -197,7 +267,7 @@ to compute-distance-main-exit
     ifelse is-exit? and pycor = 1 [
       set distance-to-main-exit 0
     ] [
-      set distance-to-main-exit -1
+      set distance-to-main-exit 10000000000
     ]
   ]
 
@@ -210,7 +280,7 @@ to compute-distance-main-exit
     let expanded no-patches
     ask queue [
       ;; ask von neumann neighbors with an unset distance to set distance
-      ask neighbors4 with [is-walkable? and distance-to-main-exit = -1] [
+      ask neighbors4 with [is-walkable? and distance-to-main-exit = 10000000000] [
         set distance-to-main-exit current-distance
         set expanded (patch-set expanded self)
       ]
@@ -226,7 +296,7 @@ to compute-distance-second-exit
     ifelse is-exit? and pycor = 54 [
       set distance-to-second-exit 0
     ] [
-      set distance-to-second-exit -1
+      set distance-to-second-exit 10000000000
     ]
   ]
 
@@ -239,7 +309,7 @@ to compute-distance-second-exit
     let expanded no-patches
     ask queue [
       ;; ask von neumann neighbors with an unset distance to set distance
-      ask neighbors4 with [is-walkable? and distance-to-second-exit = -1] [
+      ask neighbors4 with [is-walkable? and distance-to-second-exit = 10000000000] [
         set distance-to-second-exit current-distance
         set expanded (patch-set expanded self)
       ]
@@ -255,7 +325,7 @@ to compute-distance-fire-escape
     ifelse is-exit? and pxcor = 225 [
       set distance-to-fire-exit 0
     ] [
-      set distance-to-fire-exit -1
+      set distance-to-fire-exit 10000000000
     ]
   ]
 
@@ -268,7 +338,7 @@ to compute-distance-fire-escape
     let expanded no-patches
     ask queue [
       ;; ask von neumann neighbors with an unset distance to set distance
-      ask neighbors4 with [is-walkable? and distance-to-fire-exit = -1] [
+      ask neighbors4 with [is-walkable? and distance-to-fire-exit = 10000000000] [
         set distance-to-fire-exit current-distance
         set expanded (patch-set expanded self)
       ]
@@ -284,7 +354,7 @@ to compute-distance-stairs
     ifelse is-stairs? and not is-ground-floor? [
       set distance-to-main-stairs 0
     ] [
-      set distance-to-main-stairs -1
+      set distance-to-main-stairs 10000000000
     ]
   ]
 
@@ -297,7 +367,7 @@ to compute-distance-stairs
     let expanded no-patches
     ask queue [
       ;; ask von neumann neighbors with an unset distance to set distance
-      ask neighbors4 with [is-walkable? and distance-to-main-stairs = -1] [
+      ask neighbors4 with [is-walkable? and distance-to-main-stairs = 10000000000] [
         set distance-to-main-stairs current-distance
         set expanded (patch-set expanded self)
       ]
@@ -313,7 +383,7 @@ to compute-distance-honors-stairs
     ifelse is-honors-stairs? and not is-ground-floor? [
       set distance-to-honors-stairs 0
     ] [
-      set distance-to-honors-stairs -1
+      set distance-to-honors-stairs 10000000000
     ]
   ]
 
@@ -326,7 +396,7 @@ to compute-distance-honors-stairs
     let expanded no-patches
     ask queue [
       ;; ask von neumann neighbors with an unset distance to set distance
-      ask neighbors4 with [is-walkable? and distance-to-honors-stairs = -1] [
+      ask neighbors4 with [is-walkable? and distance-to-honors-stairs = 10000000000] [
         set distance-to-honors-stairs current-distance
         set expanded (patch-set expanded self)
       ]
@@ -342,7 +412,7 @@ to compute-distance-fire-escape-stairs
     ifelse is-fire-escape-stairs? and not is-ground-floor? [
       set distance-to-fire-stairs 0
     ] [
-      set distance-to-fire-stairs -1
+      set distance-to-fire-stairs 10000000000
     ]
   ]
 
@@ -355,7 +425,7 @@ to compute-distance-fire-escape-stairs
     let expanded no-patches
     ask queue [
       ;; ask von neumann neighbors with an unset distance to set distance
-      ask neighbors4 with [is-walkable? and distance-to-fire-stairs = -1] [
+      ask neighbors4 with [is-walkable? and distance-to-fire-stairs = 10000000000] [
         set distance-to-fire-stairs current-distance
         set expanded (patch-set expanded self)
       ]
@@ -665,7 +735,7 @@ to move-low-knowledge
 end
 
 to random-walk
-  let options neighbors with [is-walkable?]
+  let options neighbors with [is-walkable? and not any? turtles-here]
   if any? options [
     let chosen-patch one-of options
     face chosen-patch
@@ -779,33 +849,11 @@ burn-rate
 NIL
 HORIZONTAL
 
-MONITOR
-7
-237
-87
-282
-NIL
-agents-died
-17
-1
-11
-
-MONITOR
-92
-237
-195
-282
-NIL
-agents-survived
-17
-1
-11
-
 SWITCH
-15
-294
-124
-327
+8
+228
+117
+261
 panic-on?
 panic-on?
 0
@@ -813,10 +861,10 @@ panic-on?
 -1000
 
 SLIDER
-24
-344
-224
-377
+8
+265
+208
+298
 exit-capacity
 exit-capacity
 0
@@ -841,6 +889,59 @@ smoke-spread
 1
 NIL
 HORIZONTAL
+
+PLOT
+243
+262
+623
+461
+Agents survived per group
+ticks
+Amount
+0.0
+10.0
+0.0
+10.0
+true
+true
+"" ""
+PENS
+"high-knowledge" 1.0 0 -10899396 true "" "plot high-survived"
+"medium-knowledge" 1.0 0 -1184463 true "" "plot medium-survived"
+"low-knowledge" 1.0 0 -2674135 true "" "plot low-survived"
+"random-walk" 1.0 0 -7500403 true "" "plot random-survived"
+
+PLOT
+627
+261
+1008
+459
+Dead agents per group
+ticks
+Amount
+0.0
+10.0
+0.0
+10.0
+true
+true
+"" ""
+PENS
+"high-deceased" 1.0 0 -10899396 true "" "plot high-died"
+"pen-1" 1.0 0 -1184463 true "" "plot medium-died"
+"pen-2" 1.0 0 -2674135 true "" "plot low-died"
+"pen-3" 1.0 0 -7500403 true "" "plot random-died"
+
+MONITOR
+7
+307
+142
+352
+NIL
+avg-evacuation-times
+17
+1
+11
 
 @#$#@#$#@
 ## WHAT IS IT?
