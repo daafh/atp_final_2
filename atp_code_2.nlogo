@@ -75,10 +75,6 @@ to setup
   compute-distance-honors-stairs
   compute-distance-fire-escape-stairs
 
-  ;; create agents
-  create-floor-specific-agents agents-on-ground-floor true
-  create-floor-specific-agents agents-on-first-floor false
-
   ;; set random patch on fire
   ask one-of patches with [pcolor = white] [
     ignite
@@ -259,7 +255,7 @@ to-report simulation-summary
 
   let surv-rate-overall agents-survived / total-agents
 
-  ;; calculate evacuation times per group
+  ;; calculate evacuation times per group ;;
   ;; same as function avg-evacuation-times!, just used seperately so we can report all variables at once
   let overall-avg ifelse-value empty? total-evacuation-times [0] [mean total-evacuation-times]
   let high-avg    ifelse-value empty? high-evacuation-times [0] [mean high-evacuation-times]
@@ -279,10 +275,7 @@ end
 
 ;; PATCH OWN FUNCTIONS ;;
 
-;; function for creating n amount of agents on defined floor
-to create-floor-specific-agents [n ground-floor?]
-  let target-floor ground-floor?
-
+to spawn-specific-agents [target-floor n knowledge]
   repeat n [
     let candidates patches with [
       is-walkable? and is-ground-floor? = target-floor
@@ -291,7 +284,7 @@ to create-floor-specific-agents [n ground-floor?]
       ask one-of candidates [
         sprout 1 [
           set current-floor ifelse-value target-floor [0] [1]
-          set spatial-knowledge one-of ["high" "medium" "low" "random"]
+          set spatial-knowledge knowledge
           set panic-level 0
           set health 100
           set color (ifelse-value
@@ -304,6 +297,47 @@ to create-floor-specific-agents [n ground-floor?]
         ]
       ]
     ]
+  ]
+end
+
+;; function for creating n amount of agents on defined floor
+to create-floor-specific-agents [n ground-floor?]
+  let target-floor ground-floor?
+  ifelse random-spawns? [
+    ;; regular spawning mechanism
+    repeat n [
+      let candidates patches with [
+        is-walkable? and is-ground-floor? = target-floor
+      ]
+      if any? candidates [
+        ask one-of candidates [
+          sprout 1 [
+            set current-floor ifelse-value target-floor [0] [1]
+            set spatial-knowledge one-of ["high" "medium" "low" "random"]
+            set panic-level 0
+            set health 100
+            set color (ifelse-value
+                       spatial-knowledge = "high"    [green]
+                       spatial-knowledge = "medium"  [yellow]
+                       spatial-knowledge = "low"     [red]
+                       [gray]
+            )
+            set size 1.5
+          ]
+        ]
+      ]
+    ]
+  ] [
+  ;; else clause, spawn based on percentages defined in environment with sliders
+    let high-count round (n * pct-high)
+    let medium-count round (n * pct-medium)
+    let low-count round (n * pct-low)
+    let random-count round (n * pct-random)
+
+    spawn-specific-agents target-floor high-count "high"
+    spawn-specific-agents target-floor medium-count "medium"
+    spawn-specific-agents target-floor low-count "low"
+    spawn-specific-agents target-floor random-count "random"
   ]
 end
 
@@ -772,13 +806,13 @@ to move-low-knowledge
               move-to one-of away-from-fire-patches
             ] [
               if any? safe-patches [
-                let chosen-patch one-of options ;; random walk
-                face chosen-patch
-                move-to chosen-patch
-              ]
+              let chosen-patch one-of options ;; random walk
+              face chosen-patch
+              move-to chosen-patch
             ]
           ]
         ]
+      ]
     ]
   ]
 end
@@ -820,10 +854,10 @@ ticks
 30.0
 
 BUTTON
-143
-32
-221
-65
+186
+33
+241
+66
 NIL
 go
 T
@@ -839,9 +873,9 @@ NIL
 BUTTON
 6
 32
-133
+70
 65
-Setup Simulation
+Setup
 setup
 NIL
 1
@@ -854,10 +888,10 @@ NIL
 1
 
 SLIDER
-7
-74
-179
-107
+6
+196
+178
+229
 agents-on-first-floor
 agents-on-first-floor
 0
@@ -869,10 +903,10 @@ NIL
 HORIZONTAL
 
 SLIDER
-7
-110
-187
-143
+6
+232
+186
+265
 agents-on-ground-floor
 agents-on-ground-floor
 0
@@ -884,10 +918,10 @@ NIL
 HORIZONTAL
 
 SLIDER
-7
-147
-179
-180
+6
+269
+178
+302
 burn-rate
 burn-rate
 0
@@ -899,10 +933,10 @@ NIL
 HORIZONTAL
 
 SWITCH
-8
-228
-117
-261
+7
+343
+116
+376
 panic-on?
 panic-on?
 0
@@ -910,10 +944,10 @@ panic-on?
 -1000
 
 SLIDER
-8
-265
-208
-298
+7
+380
+207
+413
 exit-capacity
 exit-capacity
 0
@@ -925,15 +959,15 @@ agents per tick
 HORIZONTAL
 
 SLIDER
-8
-184
-180
-217
+7
+306
+179
+339
 smoke-spread
 smoke-spread
 0
 1
-0.07
+0.06
 0.01
 1
 NIL
@@ -1024,6 +1058,94 @@ ifelse-value empty? random-evacuation-times [0] [mean random-evacuation-times]
 2
 1
 11
+
+SWITCH
+7
+73
+158
+106
+random-spawns?
+random-spawns?
+1
+1
+-1000
+
+SLIDER
+7
+111
+111
+144
+pct-high
+pct-high
+0
+1
+0.0
+0.01
+1
+NIL
+HORIZONTAL
+
+SLIDER
+115
+111
+220
+144
+pct-medium
+pct-medium
+0
+1
+0.0
+0.01
+1
+NIL
+HORIZONTAL
+
+SLIDER
+7
+147
+112
+180
+pct-low
+pct-low
+0
+1
+0.0
+0.01
+1
+NIL
+HORIZONTAL
+
+SLIDER
+116
+147
+219
+180
+pct-random
+pct-random
+0
+1
+0.0
+0.01
+1
+NIL
+HORIZONTAL
+
+BUTTON
+72
+32
+183
+65
+Spawn agents
+create-floor-specific-agents agents-on-ground-floor true\n  create-floor-specific-agents agents-on-first-floor false
+NIL
+1
+T
+OBSERVER
+NIL
+NIL
+NIL
+NIL
+1
 
 @#$#@#$#@
 ## WHAT IS IT?
