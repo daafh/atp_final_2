@@ -1,3 +1,4 @@
+;; fire escape simulation in academy building
 patches-own [
   is-ground-floor?            ;; ground floor is on the right side of the screen
   is-stairs?                  ;; stairs are marked by pcolor cyan
@@ -23,7 +24,6 @@ patches-own [
 turtles-own [
   current-floor       ;; track current floor for stair behavior
   spatial-knowledge   ;; either random, low, medium, high
-  panic-level         ;; 0-1, increase mistake
 
   health              ;; health value used for agents in fire
 ]
@@ -45,6 +45,7 @@ globals [
 
 ;; GLOBAL FUNCTIONS ;;
 
+;; setup function that initializes everything for the model to run
 to setup
   import-image-to-world
 
@@ -83,6 +84,7 @@ to setup
   initialize-reporter-variables
 end
 
+;; main loop function that moves the agents, spreads fire and enforces logic
 to go
   if not any? turtles [
     stop
@@ -93,16 +95,6 @@ to go
   ]
 
   ask turtles [
-    ifelse panic-on? [
-      ifelse any? (patches in-radius 10) with [is-burning?] [
-        set panic-level min list 1 (panic-level + 0.1)
-      ] [
-        set panic-level max list 0 (panic-level - 0.02)
-      ]
-    ] [
-      set panic-level 0
-    ]
-
     (ifelse
       spatial-knowledge = "high" [
         move-high-knowledge
@@ -199,7 +191,7 @@ to go
 end
 
 ;; REPORTER FUNCTIONS ;;
-
+;; initialization function to set all variables used for reporting
 to initialize-reporter-variables
   ;; all global variables are just set here,
   ;; which are used for reporting statistics
@@ -224,10 +216,12 @@ to initialize-reporter-variables
   set random-evacuation-times []
 end
 
+;; reporter function for the survival rate (agents that survived / all agents)
 to-report survival-rate
   report agents-survived / total-agents
 end
 
+;; reporter function for reporting overall and per group evacuation times
 to-report avg-evacuation-times
   let overall-avg ifelse-value empty? total-evacuation-times [0] [mean total-evacuation-times]
   let high-avg    ifelse-value empty? high-evacuation-times [0] [mean high-evacuation-times]
@@ -274,7 +268,7 @@ end
 ;; END GLOBAL FUNCTIONS
 
 ;; PATCH OWN FUNCTIONS ;;
-
+;; function for spawning n amount of agents on defined floor, with knowledge group as argument
 to spawn-specific-agents [target-floor n knowledge]
   repeat n [
     let candidates patches with [
@@ -285,7 +279,6 @@ to spawn-specific-agents [target-floor n knowledge]
         sprout 1 [
           set current-floor ifelse-value target-floor [0] [1]
           set spatial-knowledge knowledge
-          set panic-level 0
           set health 100
           set color (ifelse-value
                      spatial-knowledge = "high"    [green]
@@ -314,7 +307,6 @@ to create-floor-specific-agents [n ground-floor?]
           sprout 1 [
             set current-floor ifelse-value target-floor [0] [1]
             set spatial-knowledge one-of ["high" "medium" "low" "random"]
-            set panic-level 0
             set health 100
             set color (ifelse-value
                        spatial-knowledge = "high"    [green]
@@ -328,7 +320,12 @@ to create-floor-specific-agents [n ground-floor?]
       ]
     ]
   ] [
-  ;; else clause, spawn based on percentages defined in environment with sliders
+    ;; else clause, spawn based on percentages defined in environment with sliders
+    let total-pct (pct-high + pct-medium + pct-low + pct-random)
+    if total-pct != 1 [
+      user-message "Error: Total percentage must add to 1!"
+      stop
+    ]
     let high-count round (n * pct-high)
     let medium-count round (n * pct-medium)
     let low-count round (n * pct-low)
@@ -536,13 +533,14 @@ to setup-stairs
 end
 
 ;; FUNCTIONS RELATED TO FIRE ;;
-
+;; function for igniting a tile
 to ignite
   set is-burning? true
   set is-walkable? false
   set heat-level 100
 end
 
+;; function that handles the fire spreading and all other logic
 to spread-fire
   ask patches with [is-burning?] [
     ask neighbors with [is-walkable? and not is-burning?] [
@@ -566,6 +564,7 @@ to spread-fire
   ]
 end
 
+;; function for visualizing fire with different colors based on heat level
 to visualize-fire
   ask patches with [is-walkable?] [
     if (smoke-level > 0 and not is-exit? and not is-stairs? and not is-honors-stairs?
@@ -586,6 +585,7 @@ to visualize-fire
   ]
 end
 
+;; function that handles smoke spreading
 to spread-smoke
   ask patches with [smoke-level > 0 and smoke-level != 100] [
     let amount smoke-level * smoke-spread
@@ -620,17 +620,12 @@ to move-stairs
   ]
 end
 
+;; function for implementing the movement of agents with high spatial knowledge
 to move-high-knowledge
   ;; currently on first floor
   ifelse (current-floor = 1) [
     let options neighbors with [is-walkable? and not any? turtles-here]
     if any? options [
-      let mistake-chance ifelse-value panic-on? [0.1 + 0.25 * panic-level] [0]
-      if random-float 1 < mistake-chance [
-        face one-of options
-        move-to one-of options
-        stop
-      ]
       let best-option min-one-of options [
         min (list distance-to-main-stairs distance-to-honors-stairs distance-to-fire-stairs)
       ]
@@ -642,12 +637,6 @@ to move-high-knowledge
   ] [ ;; else ground floor and move to nearest exit
     let options neighbors with [is-walkable? and not any? turtles-here]
     if any? options [
-      let mistake-chance ifelse-value panic-on? [0.2 + 0.25 * panic-level] [0]
-      if random-float 1 < mistake-chance [
-        face one-of options
-        move-to one-of options
-        stop
-      ]
       let best-option min-one-of options [
         min (list distance-to-main-exit distance-to-second-exit distance-to-fire-exit)
       ]
@@ -659,18 +648,12 @@ to move-high-knowledge
   ]
 end
 
+;; function for implementing the movement of agents with medium spatial knowledge
 to move-medium-knowledge
   ;; currently on first floor
   ifelse (current-floor = 1) [
     let options neighbors with [is-walkable? and not any? turtles-here]
     if any? options [
-      ;; mistakes due to panic
-      let mistake-chance ifelse-value panic-on? [0.2 + 0.1 * panic-level] [0.1]
-      if random-float 1 < mistake-chance [
-        face one-of options
-        move-to one-of options
-        stop
-      ]
       ;; if fire escape nearby, go there instead
       let fire-escape-patches patches in-radius 10 with [is-fire-escape-stairs?]
       if any? fire-escape-patches [
@@ -691,13 +674,6 @@ to move-medium-knowledge
   ] [ ;; else ground floor and move to nearest exit
     let options neighbors with [is-walkable? and not any? turtles-here]
     if any? options [
-      ;; mistakes due to panic
-      let mistake-chance ifelse-value panic-on? [0.2 + 0.1 * panic-level] [0.1]
-      if random-float 1 < mistake-chance [
-        face one-of options
-        move-to one-of options
-        stop
-      ]
       ;; if fire escape nearby, go there instead
       let fire-escape-patches patches in-radius 10 with [is-fire-escape-stairs?]
       if any? fire-escape-patches [
@@ -718,6 +694,7 @@ to move-medium-knowledge
   ]
 end
 
+;; function for implementing the movement of agents with low spatial knowledge
 to move-low-knowledge
   ;; currently on first floor
   ifelse (current-floor = 1) [
@@ -725,12 +702,6 @@ to move-low-knowledge
     if any? options [
       let stairs-patches patches in-radius 15 with [is-stairs?]
       let fire-stairs-patches patches in-radius 10 with [is-fire-escape-stairs?]
-      let mistake-chance ifelse-value panic-on? [0.4 + 0.1 * panic-level] [0]
-      if random-float 1 < mistake-chance [
-        face one-of options
-        move-to one-of options
-        stop
-      ]
 
       ;; local vision
       (ifelse
@@ -774,12 +745,6 @@ to move-low-knowledge
     let options neighbors with [is-walkable? and not any? turtles-here]
     if any? options [
       let visible-targets patches in-radius 15 with [is-exit?]
-      let mistake-chance ifelse-value panic-on? [0.4 + 0.1 * panic-level] [0]
-      if random-float 1 < mistake-chance [
-        face one-of options
-        move-to one-of options
-        stop
-      ]
 
       ;; local vision
       ifelse any? visible-targets [
@@ -817,6 +782,7 @@ to move-low-knowledge
   ]
 end
 
+;; function that implements walking behavior for random walk agents
 to random-walk
   let options neighbors with [is-walkable? and not any? turtles-here]
   if any? options [
@@ -854,10 +820,10 @@ ticks
 30.0
 
 BUTTON
-186
-33
-241
-66
+182
+218
+237
+251
 NIL
 go
 T
@@ -871,10 +837,10 @@ NIL
 1
 
 BUTTON
-6
-32
-70
-65
+2
+218
+66
+251
 Setup
 setup
 NIL
@@ -888,10 +854,10 @@ NIL
 1
 
 SLIDER
-6
-196
-178
-229
+2
+140
+174
+173
 agents-on-first-floor
 agents-on-first-floor
 0
@@ -903,10 +869,10 @@ NIL
 HORIZONTAL
 
 SLIDER
-6
-232
-186
-265
+2
+176
+182
+209
 agents-on-ground-floor
 agents-on-ground-floor
 0
@@ -918,10 +884,10 @@ NIL
 HORIZONTAL
 
 SLIDER
-6
-269
-178
-302
+3
+259
+175
+292
 burn-rate
 burn-rate
 0
@@ -932,22 +898,11 @@ burn-rate
 NIL
 HORIZONTAL
 
-SWITCH
-7
-343
-116
-376
-panic-on?
-panic-on?
-0
-1
--1000
-
 SLIDER
-7
-380
-207
-413
+3
+333
+203
+366
 exit-capacity
 exit-capacity
 0
@@ -959,10 +914,10 @@ agents per tick
 HORIZONTAL
 
 SLIDER
-7
-306
-179
-339
+3
+296
+175
+329
 smoke-spread
 smoke-spread
 0
@@ -1060,10 +1015,10 @@ ifelse-value empty? random-evacuation-times [0] [mean random-evacuation-times]
 11
 
 SWITCH
-7
-73
-158
-106
+2
+18
+153
+51
 random-spawns?
 random-spawns?
 1
@@ -1071,25 +1026,25 @@ random-spawns?
 -1000
 
 SLIDER
-7
-111
-111
-144
+2
+55
+106
+88
 pct-high
 pct-high
 0
 1
-0.0
+0.61
 0.01
 1
 NIL
 HORIZONTAL
 
 SLIDER
-115
-111
-220
-144
+110
+55
+215
+88
 pct-medium
 pct-medium
 0
@@ -1101,25 +1056,25 @@ NIL
 HORIZONTAL
 
 SLIDER
-7
-147
+2
+90
+107
+123
+pct-low
+pct-low
+0
+1
+0.39
+0.01
+1
+NIL
+HORIZONTAL
+
+SLIDER
 112
-180
-pct-low
-pct-low
-0
-1
-0.0
-0.01
-1
-NIL
-HORIZONTAL
-
-SLIDER
-116
-147
-219
-180
+90
+215
+123
 pct-random
 pct-random
 0
@@ -1131,10 +1086,10 @@ NIL
 HORIZONTAL
 
 BUTTON
-72
-32
-183
-65
+68
+218
+179
+251
 Spawn agents
 create-floor-specific-agents agents-on-ground-floor true\n  create-floor-specific-agents agents-on-first-floor false
 NIL
