@@ -1,7 +1,7 @@
 ;; University of Groningen (UG) Academy Building Fire Evacuation Model
 ;; Agent Based Model written for the UG course 'Agent Technology Practical'
 ;; Developed between October 18 and December 14 2025
-;; All code written from scratch by David van Wuijkhuijse
+;; All code written from scratch by David van Wuijkhuijse (d.g.a.van.wuijkhuijse@student.rug.nl)
 
 patches-own [
   is-ground-floor?            ;; ground floor is on the right side of the screen
