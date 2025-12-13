@@ -1,4 +1,8 @@
-;; fire escape simulation in academy building
+;; University of Groningen (UG) Academy Building Fire Evacuation Model
+;; Agent Based Model written for the UG course 'Agent Technology Practical'
+;; Developed between October 18 and December 14 2025
+;; All code written from scratch by David van Wuijkhuijse
+
 patches-own [
   is-ground-floor?            ;; ground floor is on the right side of the screen
   is-stairs?                  ;; stairs are marked by pcolor cyan
@@ -40,7 +44,6 @@ globals [
   medium-evacuation-times                                    ;; list of all evacuation times
   low-evacuation-times
   random-evacuation-times
-
 ]
 
 ;; GLOBAL FUNCTIONS ;;
@@ -1034,7 +1037,7 @@ pct-high
 pct-high
 0
 1
-0.61
+1.0
 0.01
 1
 NIL
@@ -1064,7 +1067,7 @@ pct-low
 pct-low
 0
 1
-0.39
+0.0
 0.01
 1
 NIL
