@@ -275,7 +275,7 @@ end
 to spawn-specific-agents [target-floor n knowledge]
   repeat n [
     let candidates patches with [
-      is-walkable? and is-ground-floor? = target-floor
+      is-walkable? and is-ground-floor? = target-floor and not any? turtles-here
     ]
     if any? candidates [
       ask one-of candidates [
@@ -303,7 +303,7 @@ to create-floor-specific-agents [n ground-floor?]
     ;; regular spawning mechanism
     repeat n [
       let candidates patches with [
-        is-walkable? and is-ground-floor? = target-floor
+        is-walkable? and is-ground-floor? = target-floor and not any? turtles-here
       ]
       if any? candidates [
         ask one-of candidates [
@@ -669,18 +669,43 @@ to move-medium-knowledge
       let best-option min-one-of options [
         min (list distance-to-main-stairs)
       ]
-      if best-option != nobody [
+      if best-option != nobody and [distance-to-main-stairs] of best-option < 1e10 [
         face best-option
         move-to best-option
+        stop
+      ]
+      ;; else: move away from fire
+      let nearby-patches neighbors
+      let fire-patches patches in-radius 5 with [is-burning?]
+      if any? fire-patches [
+        let closest-fire-patch min-one-of fire-patches [distance myself]
+        let safe-patches nearby-patches with [not any? turtles-here and not is-burning? and is-walkable?]
+
+        let my-dist [distance myself] of closest-fire-patch
+        let away-from-fire-patches safe-patches with [
+          (distance closest-fire-patch) > my-dist
+        ]
+
+        ifelse any? away-from-fire-patches [
+          move-to one-of away-from-fire-patches
+        ] [
+          if any? safe-patches [
+            let chosen-patch one-of options ;; random walk
+            face chosen-patch
+            move-to chosen-patch
+          ]
+        ]
       ]
     ]
   ] [ ;; else ground floor and move to nearest exit
     let options neighbors with [is-walkable? and not any? turtles-here]
     if any? options [
       ;; if fire escape nearby, go there instead
-      let fire-escape-patches patches in-radius 10 with [is-fire-escape-stairs?]
+      let fire-escape-patches patches in-radius 10 with [is-exit?]
       if any? fire-escape-patches [
-        let best-option min-one-of options [distance-to-fire-stairs]
+        let best-option min-one-of options [
+          min (list distance-to-main-exit distance-to-second-exit distance-to-fire-exit)
+        ]
         face best-option
         move-to best-option
         stop
@@ -689,9 +714,32 @@ to move-medium-knowledge
       let best-option min-one-of options [
         min (list distance-to-main-exit)
       ]
-      if best-option != nobody [
+      if best-option != nobody and [distance-to-main-exit] of best-option < 1e10 [
         face best-option
         move-to best-option
+        stop
+      ]
+      ;; else: move away from fire
+      let nearby-patches neighbors
+      let fire-patches patches in-radius 5 with [is-burning?]
+      if any? fire-patches [
+        let closest-fire-patch min-one-of fire-patches [distance myself]
+        let safe-patches nearby-patches with [not any? turtles-here and not is-burning? and is-walkable?]
+
+        let my-dist [distance myself] of closest-fire-patch
+        let away-from-fire-patches safe-patches with [
+          (distance closest-fire-patch) > my-dist
+        ]
+
+        ifelse any? away-from-fire-patches [
+          move-to one-of away-from-fire-patches
+        ] [
+          if any? safe-patches [
+            let chosen-patch one-of options ;; random walk
+            face chosen-patch
+            move-to chosen-patch
+          ]
+        ]
       ]
     ]
   ]
@@ -1037,7 +1085,7 @@ pct-high
 pct-high
 0
 1
-1.0
+0.0
 0.01
 1
 NIL
@@ -1052,7 +1100,7 @@ pct-medium
 pct-medium
 0
 1
-0.0
+1.0
 0.01
 1
 NIL
@@ -1094,7 +1142,7 @@ BUTTON
 179
 251
 Spawn agents
-create-floor-specific-agents agents-on-ground-floor true\n  create-floor-specific-agents agents-on-first-floor false
+create-floor-specific-agents agents-on-ground-floor true\ncreate-floor-specific-agents agents-on-first-floor false
 NIL
 1
 T
